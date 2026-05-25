@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>听瓜 Android 项目说明</title>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1e2b22; background: #f7faf7; }
+    main { max-width: 980px; margin: 0 auto; padding: 36px 22px 56px; }
+    h1 { font-size: 42px; margin: 0 0 10px; }
+    h2 { margin-top: 34px; border-bottom: 1px solid #d8e4dc; padding-bottom: 8px; }
+    .lead { font-size: 18px; color: #52645a; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 22px 0; }
+    .card { background: #fff; border: 1px solid #dfe9e2; border-radius: 8px; padding: 16px; }
+    code, pre { background: #eef4ef; border-radius: 6px; }
+    code { padding: 2px 5px; }
+    pre { padding: 14px; overflow: auto; }
+    li { margin: 8px 0; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>听瓜</h1>
+  <p class="lead">一个通过西瓜敲击声采集、人工标注、训练 MFCC + 小 MLP，并把 TFLite 模型包部署回手机端离线推理的 Android 原型。</p>
+
+  <section class="grid">
+    <div class="card"><strong>录音</strong><p>使用手机麦克风录制 16 kHz 单声道 WAV，每条样本最长 3 秒。</p></div>
+    <div class="card"><strong>特征</strong><p>App 提取 8 个基础声学特征，加 13 维 MFCC 均值和 13 维 MFCC 标准差，共 34 维。</p></div>
+    <div class="card"><strong>标注</strong><p>用户选择偏生、成熟、过熟/异常，App 把音频和标签写入 <code>metadata.jsonl</code>。</p></div>
+    <div class="card"><strong>部署</strong><p>训练脚本输出 <code>model_bundle.zip</code>，App 上传后优先使用 <code>model.tflite</code> 本地推理。</p></div>
+  </section>
+
+  <h2>构建 APK</h2>
+  <pre>.\gradlew.bat assembleDebug</pre>
+  <p>产物位于 <code>app/build/outputs/apk/debug/SelWatermelon-debug-1.0.apk</code>。</p>
+
+  <h2>采集流程</h2>
+  <ol>
+    <li>安装 APK，并授予录音权限。</li>
+    <li>点击“开始录音”，靠近西瓜敲击 1-3 次，再点击停止，或等待 3 秒自动停止。</li>
+    <li>查看判断结果和 MFCC/声学特征。</li>
+    <li>切开或用可靠方法确认真实成熟度后，选择偏生、成熟、过熟/异常，并保存反馈。</li>
+    <li>采集足够样本后，点击“打包下载数据”导出 <code>watermelon_dataset.zip</code>。</li>
+  </ol>
+
+  <h2>训练 TFLite</h2>
+  <pre>pip install tensorflow
+python training/train_model.py watermelon_dataset.zip -o model_bundle.zip</pre>
+  <p>脚本会训练一个小 MLP：<code>Dense 128 -> Dropout -> Dense 64 -> Softmax</code>。输入是和 App 端一致的 34 维特征。</p>
+
+  <h2>回传模型</h2>
+  <ol>
+    <li>把 <code>model_bundle.zip</code> 发送到手机。</li>
+    <li>在 App 中点击“上传训练好的 TFLite 模型包”。</li>
+    <li>选择 <code>model_bundle.zip</code>。后续录音会优先使用 MLP TFLite。</li>
+  </ol>
+
+  <h2>注意</h2>
+  <ul>
+    <li>每个西瓜建议多位置、多次敲击，最终用多次结果综合判断。</li>
+    <li>训练和测试时应按“西瓜个体”划分，避免同一个西瓜的不同敲击同时出现在训练集和测试集。</li>
+    <li>真实标签最好来自切开验证、糖度或明确口感反馈，只靠听感标注会污染模型。</li>
+  </ul>
+</main>
+</body>
+</html>
