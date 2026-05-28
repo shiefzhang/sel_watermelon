@@ -22,7 +22,6 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
-import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -45,7 +44,7 @@ public class MainActivity extends Activity {
     private static final int REQUEST_MODEL_FILE = 40;
     private static final int RECORD_COLOR = 0xFF1B7F45;
     private static final int AUDIO_COLOR = 0xFF2367B2;
-    private static final String[] FEEDBACK_LABELS = {"偏生", "尚可", "爆表", "过熟"};
+    private static final String[] FEEDBACK_LABELS = {"偏生", "尚可", "甘甜", "过熟"};
     private static final String[] FEEDBACK_VALUES = {"unripe", "acceptable", "bursting", "overripe"};
 
     private final WatermelonRecorder recorder = new WatermelonRecorder();
@@ -60,7 +59,7 @@ public class MainActivity extends Activity {
     private TextView resultText;
     private TextView featureText;
     private TextView listSummaryText;
-    private RadioGroup labelGroup;
+    private List<RadioButton> mainFeedbackButtons = new ArrayList<>();
     private Spinner feedbackWeightSpinner;
     private Button recordButton;
     private Button saveFeedbackButton;
@@ -68,6 +67,7 @@ public class MainActivity extends Activity {
     private Button listTabButton;
     private Button downloadSelectedButton;
     private Button deleteSelectedButton;
+    private LinearLayout listPanel;
     private CheckBox selectAllCheckBox;
     private WaveformView waveformView;
     private LinearLayout recordPage;
@@ -164,6 +164,7 @@ public class MainActivity extends Activity {
         root.addView(recordButton);
 
         resultText = panelText();
+        resultText.setGravity(Gravity.CENTER);
         resultText.setText("暂无判断结果");
         root.addView(resultText);
 
@@ -178,18 +179,21 @@ public class MainActivity extends Activity {
                 dp(94),
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
-        labelGroup = new RadioGroup(this);
-        labelGroup.setOrientation(RadioGroup.HORIZONTAL);
-        labelGroup.setPadding(dp(12), 0, 0, 0);
-        for (int i = 0; i < FEEDBACK_LABELS.length; i++) {
-            addRadio(labelGroup, FEEDBACK_LABELS[i], FEEDBACK_VALUES[i]);
-        }
-        feedbackRow.addView(labelGroup, new LinearLayout.LayoutParams(
+        mainFeedbackButtons.clear();
+        LinearLayout mainFeedbackOptions = new LinearLayout(this);
+        mainFeedbackOptions.setOrientation(LinearLayout.VERTICAL);
+        mainFeedbackOptions.setPadding(dp(12), 0, 0, 0);
+        mainFeedbackOptions.addView(feedbackOptionRow("", mainFeedbackButtons, 0, 2));
+        mainFeedbackOptions.addView(feedbackOptionRow("", mainFeedbackButtons, 2, 4));
+        feedbackRow.addView(mainFeedbackOptions, new LinearLayout.LayoutParams(
                 0,
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1
         ));
-        feedbackPanel.addView(feedbackRow);
+        feedbackPanel.addView(feedbackRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
 
         LinearLayout weightRow = rowLayout();
         weightRow.setPadding(0, dp(4), 0, dp(4));
@@ -197,12 +201,22 @@ public class MainActivity extends Activity {
                 dp(94),
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
+        LinearLayout weightControlArea = new LinearLayout(this);
+        weightControlArea.setGravity(Gravity.CENTER);
         feedbackWeightSpinner = weightSpinner(0, false);
-        weightRow.addView(feedbackWeightSpinner, new LinearLayout.LayoutParams(
-                dp(150),
+        weightControlArea.addView(feedbackWeightSpinner, new LinearLayout.LayoutParams(
+                dp(120),
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
-        feedbackPanel.addView(weightRow);
+        weightRow.addView(weightControlArea, new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1
+        ));
+        feedbackPanel.addView(weightRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
 
         saveFeedbackButton = secondaryButton("保存实际口感");
         saveFeedbackButton.setEnabled(false);
@@ -216,8 +230,9 @@ public class MainActivity extends Activity {
     }
 
     private void buildListPage(LinearLayout root) {
-        LinearLayout listPanel = panel();
-        listSummaryText = text("", 13, 0xFF66756B, false);
+        listPanel = panel();
+        listPanel.setBackground(boxBackground(0xFFEAF3FF, 0xFFB8D3F4));
+        listSummaryText = text("", 13, 0xFF1C4F86, false);
         listPanel.addView(listSummaryText);
 
         LinearLayout actions = new LinearLayout(this);
@@ -226,6 +241,8 @@ public class MainActivity extends Activity {
         downloadSelectedButton.setOnClickListener(v -> exportSelectedAudio());
         deleteSelectedButton = compactButton("删除所选");
         deleteSelectedButton.setOnClickListener(v -> deleteSelectedAudio());
+        styleAudioButton(downloadSelectedButton);
+        styleAudioButton(deleteSelectedButton);
         actions.addView(downloadSelectedButton, new LinearLayout.LayoutParams(0, dp(42), 1));
         actions.addView(deleteSelectedButton, new LinearLayout.LayoutParams(0, dp(42), 1));
         listPanel.addView(actions);
@@ -235,18 +252,20 @@ public class MainActivity extends Activity {
         listPanel.addView(audioList);
         root.addView(listPanel);
 
-        TextView tip = text("为不断优化模型准确度，您可发送数据给作者，用于模型训练与升级。mail: zhangxuefeng@batonsoft.com", 13, 0xFF66756B, false);
+        TextView tip = text("为不断优化模型准确度，您可发送数据给作者，用于模型训练与升级。mail: zhangxuefeng@batonsoft.com", 13, 0xFF1C4F86, false);
         tip.setPadding(0, dp(8), 0, 0);
         root.addView(tip);
     }
 
     private void showTab(boolean recordingTab) {
+        statusText.setVisibility(recordingTab ? View.VISIBLE : View.GONE);
         recordPage.setVisibility(recordingTab ? View.VISIBLE : View.GONE);
         listPage.setVisibility(recordingTab ? View.GONE : View.VISIBLE);
         styleTab(recordTabButton, recordingTab);
         styleTab(listTabButton, !recordingTab);
         if (!recordingTab) {
             refreshAudioList();
+        } else {
             refreshStatus("在西瓜侧边拍打3下");
         }
     }
@@ -271,10 +290,10 @@ public class MainActivity extends Activity {
         try {
             currentSession = null;
             saveFeedbackButton.setEnabled(false);
-            labelGroup.clearCheck();
+            clearFeedback(mainFeedbackButtons);
             feedbackWeightSpinner.setSelection(weightPosition(0, false));
             waveformView.reset();
-            refreshStatus("正在录音，敲击西瓜 1-3 次后点停止，最多自动录制 " + WatermelonRecorder.MAX_SECONDS + " 秒。");
+            refreshStatus("在西瓜侧边拍打3下");
             recordButton.setText("停止录音并分析");
             recorder.start(new WatermelonRecorder.Callback() {
                 @Override
@@ -330,9 +349,9 @@ public class MainActivity extends Activity {
         if (currentSession == null) {
             return;
         }
-        String feedback = checkedFeedback(labelGroup);
+        String feedback = checkedFeedback(mainFeedbackButtons);
         if (feedback.isEmpty()) {
-            Toast.makeText(this, "请选择偏生、尚可、爆表或过熟", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "请选择偏生、尚可、甘甜或过熟", Toast.LENGTH_SHORT).show();
             return;
         }
         try {
@@ -341,6 +360,8 @@ public class MainActivity extends Activity {
             datasetStore.updateFeedback(currentSession.audioId, feedback, currentSession.weightKg);
             saveFeedbackButton.setEnabled(false);
             refreshAudioList();
+            Toast.makeText(this, "实际口感已保存", Toast.LENGTH_SHORT).show();
+            refreshStatus("实际口感已保存。");
         } catch (Exception e) {
             refreshStatus("保存反馈失败：" + e.getMessage());
         }
@@ -382,12 +403,12 @@ public class MainActivity extends Activity {
             refreshAudioList();
         });
         row.addView(selectAllCheckBox, new LinearLayout.LayoutParams(dp(40), dp(40)));
-        row.addView(text("采样时间", 12, 0xFF66756B, true), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f));
-        TextView aiHeader = text("AI挑瓜", 12, 0xFF66756B, true);
+        row.addView(text("采样时间", 12, 0xFF1C4F86, true), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.2f));
+        TextView aiHeader = text("AI挑瓜", 12, 0xFF1C4F86, true);
         aiHeader.setPadding(dp(12), 0, 0, 0);
         row.addView(aiHeader, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.9f));
-        row.addView(text("实际口感", 12, 0xFF66756B, true), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-        row.addView(text("重量", 12, 0xFF66756B, true), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.8f));
+        row.addView(text("实际口感", 12, 0xFF1C4F86, true), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+        row.addView(text("重量", 12, 0xFF1C4F86, true), new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 0.8f));
         return row;
     }
 
@@ -481,12 +502,22 @@ public class MainActivity extends Activity {
                 dp(94),
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
+        LinearLayout detailWeightControlArea = new LinearLayout(this);
+        detailWeightControlArea.setGravity(Gravity.CENTER);
         Spinner weightSpinner = weightSpinner(item.weightKg, false);
-        weightRow.addView(weightSpinner, new LinearLayout.LayoutParams(
-                dp(150),
+        detailWeightControlArea.addView(weightSpinner, new LinearLayout.LayoutParams(
+                dp(120),
                 LinearLayout.LayoutParams.WRAP_CONTENT
         ));
-        content.addView(weightRow);
+        weightRow.addView(detailWeightControlArea, new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1
+        ));
+        content.addView(weightRow, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -554,21 +585,15 @@ public class MainActivity extends Activity {
         params.setMargins(0, dp(10), 0, dp(4));
         block.setLayoutParams(params);
 
-        TextView label = text("AI挑瓜", 18, 0xFFFFFFFF, true);
-        label.setGravity(Gravity.CENTER);
-        label.setPadding(dp(8), dp(8), dp(8), dp(8));
-        label.setBackground(boxBackground(RECORD_COLOR, RECORD_COLOR));
-
         LinearLayout resultBox = new LinearLayout(this);
         resultBox.setOrientation(LinearLayout.VERTICAL);
-        resultBox.setPadding(dp(12), 0, 0, 0);
+        resultBox.setPadding(0, 0, 0, 0);
         TextView result = text(ripenessText(item.modelLabel), 28, ripenessColor(item.modelLabel), true);
         TextView confidence = text("置信度：" + confidenceValue(item.modelConfidence), 12, 0xFF52645A, false);
-        result.setGravity(Gravity.LEFT);
-        confidence.setGravity(Gravity.LEFT);
+        result.setGravity(Gravity.CENTER);
+        confidence.setGravity(Gravity.CENTER);
         resultBox.addView(result);
         resultBox.addView(confidence);
-        block.addView(label, new LinearLayout.LayoutParams(dp(94), LinearLayout.LayoutParams.WRAP_CONTENT));
         block.addView(resultBox, new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1));
         return block;
     }
@@ -742,25 +767,6 @@ public class MainActivity extends Activity {
         return preferences.getString("participant_name", "");
     }
 
-    private RadioButton addRadio(RadioGroup group, String text, String tag) {
-        RadioButton button = new RadioButton(this);
-        button.setText(text);
-        button.setTextSize(14);
-        button.setTag(tag);
-        button.setId(View.generateViewId());
-        group.addView(button);
-        return button;
-    }
-
-    private String checkedFeedback(RadioGroup group) {
-        int checked = group.getCheckedRadioButtonId();
-        if (checked == View.NO_ID) {
-            return "";
-        }
-        RadioButton radio = group.findViewById(checked);
-        return radio == null ? "" : String.valueOf(radio.getTag());
-    }
-
     private String checkedFeedback(List<RadioButton> buttons) {
         for (RadioButton button : buttons) {
             if (button.isChecked()) {
@@ -768,6 +774,12 @@ public class MainActivity extends Activity {
             }
         }
         return "";
+    }
+
+    private void clearFeedback(List<RadioButton> buttons) {
+        for (RadioButton button : buttons) {
+            button.setChecked(false);
+        }
     }
 
     private int feedbackColor(String feedback) {
@@ -832,7 +844,7 @@ public class MainActivity extends Activity {
             case "ripe":
                 return "尚可";
             case "bursting":
-                return "爆表";
+                return "甘甜";
             case "overripe":
                 return "过熟";
             default:
@@ -874,18 +886,13 @@ public class MainActivity extends Activity {
     }
 
     private SpannableString aiResultText(Prediction prediction) {
-        String resultLine = "AI识瓜：" + ripenessText(prediction.label);
+        String resultLine = ripenessText(prediction.label);
         String text = String.format(Locale.US, "%s\n置信度 %.0f%%", resultLine, prediction.confidence * 100);
         SpannableString span = new SpannableString(text);
-        int titleStart = 0;
-        int titleEnd = "AI识瓜：".length();
-        int resultStart = titleEnd;
+        int resultStart = 0;
         int resultEnd = resultLine.length();
-        span.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), titleStart, titleEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        span.setSpan(new RelativeSizeSpan(1.2f), titleStart, titleEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        span.setSpan(new ForegroundColorSpan(RECORD_COLOR), titleStart, titleEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         span.setSpan(new StyleSpan(android.graphics.Typeface.BOLD), resultStart, resultEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        span.setSpan(new RelativeSizeSpan(1.55f), resultStart, resultEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        span.setSpan(new RelativeSizeSpan(2.0f), resultStart, resultEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         span.setSpan(new ForegroundColorSpan(ripenessColor(prediction.label)), resultStart, resultEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         return span;
     }
@@ -985,6 +992,11 @@ public class MainActivity extends Activity {
         Button button = secondaryButton(text);
         button.setTextSize(14);
         return button;
+    }
+
+    private void styleAudioButton(Button button) {
+        button.setTextColor(AUDIO_COLOR);
+        button.setBackground(boxBackground(0xFFFFFFFF, 0xFF9EC4EF));
     }
 
     private GradientDrawable boxBackground(int fillColor, int strokeColor) {
