@@ -11,7 +11,7 @@
 - 音频列表：查看采样时间、AI 判断、实际口感、重量，并支持多选。
 - 详情管理：查看单条录音详情，播放音频，修改反馈或删除样本。
 - 数据导出：打包导出 WAV 和 `metadata.jsonl`，便于模型训练。
-- 模型升级：支持上传训练生成的 TFLite 模型包，后续录音优先使用新模型。
+- 模型评估：支持上传多个训练生成的 TFLite 模型包，并在 App 内切换当前模型，便于对比不同模型效果。
 
 ## 使用流程
 
@@ -68,7 +68,7 @@ app/build/outputs/apk/debug/SelWatermelon-debug-1.0.apk
 python training/train_model.py watermelon_dataset.zip -o model_bundle.zip
 ```
 
-训练完成后，把 `model_bundle.zip` 发送到手机，在应用内点击“上传训练好的 TFLite 模型包”。上传成功后，后续录音会优先使用新的 TFLite 模型进行本地推理。
+训练完成后，把 `model_bundle.zip` 发送到手机，在应用内点击“上传训练好的 TFLite 模型包”。上传成功后，新模型会出现在“当前模型”下拉框中，并自动启用。后续可在下拉框中切换不同模型，应用会把每条录音使用的模型名称写入 `model_source`，便于导出后评估哪一个模型包效果更好。
 
 ## 采集建议
 

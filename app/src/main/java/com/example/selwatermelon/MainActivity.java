@@ -17,6 +17,7 @@ import android.text.style.RelativeSizeSpan;
 import android.text.style.StyleSpan;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
@@ -61,6 +62,7 @@ public class MainActivity extends Activity {
     private TextView listSummaryText;
     private List<RadioButton> mainFeedbackButtons = new ArrayList<>();
     private Spinner feedbackWeightSpinner;
+    private Spinner modelSpinner;
     private Button recordButton;
     private Button saveFeedbackButton;
     private Button recordTabButton;
@@ -74,6 +76,8 @@ public class MainActivity extends Activity {
     private LinearLayout listPage;
     private LinearLayout audioList;
     private List<RecordingItem> visibleItems = new ArrayList<>();
+    private List<RipenessModel.ModelEntry> modelEntries = new ArrayList<>();
+    private boolean updatingModelSpinner;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -173,6 +177,26 @@ public class MainActivity extends Activity {
         featureText.setText("录音后显示 MFCC 和声学特征");
         root.addView(featureText);
 
+        LinearLayout modelPanel = panel();
+        LinearLayout modelRow = rowLayout();
+        modelRow.addView(sectionPill("当前模型"), new LinearLayout.LayoutParams(
+                dp(94),
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
+        modelSpinner = new Spinner(this);
+        modelRow.addView(modelSpinner, new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1
+        ));
+        modelPanel.addView(modelRow);
+
+        Button importModelButton = secondaryButton("上传训练好的 TFLite 模型包");
+        importModelButton.setOnClickListener(v -> pickModelFile());
+        modelPanel.addView(importModelButton);
+        root.addView(modelPanel);
+        refreshModelSpinner();
+
         LinearLayout feedbackPanel = panel();
         LinearLayout feedbackRow = rowLayout();
         feedbackRow.addView(sectionPill("实际口感"), new LinearLayout.LayoutParams(
@@ -224,9 +248,6 @@ public class MainActivity extends Activity {
         feedbackPanel.addView(saveFeedbackButton);
         root.addView(feedbackPanel);
 
-        Button importModelButton = secondaryButton("上传训练好的 TFLite 模型包");
-        importModelButton.setOnClickListener(v -> pickModelFile());
-        root.addView(importModelButton);
     }
 
     private void buildListPage(LinearLayout root) {
@@ -723,11 +744,68 @@ public class MainActivity extends Activity {
             return;
         }
         try {
-            model.importFromUri(this, uri);
-            refreshStatus("模型已上传并启用。后续录音会优先使用 MLP TFLite，旧 JSON 模型仍可作为兜底。");
+            RipenessModel.ModelEntry entry = model.importFromUri(this, uri);
+            refreshModelSpinner();
+            selectModelEntry(entry.id);
+            refreshStatus("模型已上传并启用：" + entry.name);
+            Toast.makeText(this, "已启用模型：" + entry.name, Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             refreshStatus("模型上传失败：" + e.getMessage());
         }
+    }
+
+    private void refreshModelSpinner() {
+        if (modelSpinner == null) {
+            return;
+        }
+        updatingModelSpinner = true;
+        modelEntries = RipenessModel.listAvailable(this);
+        ArrayAdapter<RipenessModel.ModelEntry> adapter = new ArrayAdapter<>(
+                this,
+                android.R.layout.simple_spinner_item,
+                modelEntries
+        );
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        modelSpinner.setAdapter(adapter);
+        selectModelEntry(model.activeModelId());
+        modelSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                if (updatingModelSpinner || position < 0 || position >= modelEntries.size()) {
+                    return;
+                }
+                RipenessModel.ModelEntry entry = modelEntries.get(position);
+                if (entry.id.equals(model.activeModelId())) {
+                    return;
+                }
+                try {
+                    model.loadModel(MainActivity.this, entry.id);
+                    model.saveActiveModel(MainActivity.this);
+                    refreshStatus("已切换模型：" + model.source());
+                } catch (Exception e) {
+                    refreshStatus("模型切换失败：" + e.getMessage());
+                    refreshModelSpinner();
+                }
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+            }
+        });
+        updatingModelSpinner = false;
+    }
+
+    private void selectModelEntry(String id) {
+        if (modelSpinner == null || modelEntries.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < modelEntries.size(); i++) {
+            if (modelEntries.get(i).id.equals(id)) {
+                modelSpinner.setSelection(i);
+                return;
+            }
+        }
+        modelSpinner.setSelection(modelEntries.size() - 1);
     }
 
     private void pickModelFile() {

@@ -179,7 +179,7 @@
       <div class="card"><strong>挑瓜录音</strong><p>使用手机麦克风采集 16 kHz 单声道 WAV，适合在西瓜侧边拍打 3 下完成一次样本采集。</p></div>
       <div class="card"><strong>AI 判断</strong><p>提取 RMS、峰值、过零率、频谱质心、频段比例、衰减和 MFCC 等特征，输出成熟度标签与置信度。</p></div>
       <div class="card"><strong>反馈采集</strong><p>用户可记录实际口感和重量。保存后应用会给出成功反馈，方便连续采样。</p></div>
-      <div class="card"><strong>数据闭环</strong><p>多选导出 WAV 与 <code>metadata.jsonl</code>，训练生成 <code>model_bundle.zip</code> 后可回传 App 使用。</p></div>
+      <div class="card"><strong>模型评估</strong><p>可上传多个 <code>model_bundle.zip</code>，在“当前模型”下拉框中切换，用连续采样结果对比不同模型表现。</p></div>
     </div>
   </section>
 
@@ -209,7 +209,7 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
       <h2>模型训练</h2>
       <p>应用导出的 ZIP 可作为训练脚本输入。</p>
       <pre>python training/train_model.py watermelon_dataset.zip -o model_bundle.zip</pre>
-      <p>训练完成后，把 <code>model_bundle.zip</code> 发送到手机，并在 App 中上传。后续录音会优先使用新的 TFLite 模型。</p>
+      <p>训练完成后，把 <code>model_bundle.zip</code> 发送到手机，并在 App 中上传。新模型会出现在“当前模型”下拉框中，后续可切换不同模型进行对比评估。</p>
     </div>
   </section>
 
