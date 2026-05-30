@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Train the on-device MFCC + small MLP + TFLite model.
+"""Train the on-device MFCC + TFLite model.
 
 Input can be the exported ZIP from the Android app or an unpacked dataset folder.
-The default output is model_bundle.zip, which contains:
+The default linear output is model.json, which can be uploaded in the app.
+The MLP output is model_bundle.zip, which contains:
 
 - model.tflite
 - model_metadata.json
@@ -15,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import statistics
 import tempfile
 import wave
@@ -40,18 +42,37 @@ EPS = 1e-9
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("dataset", help="Android exported watermelon_dataset.zip or dataset directory")
-    parser.add_argument("-o", "--output", default="model_bundle.zip", help="Output TFLite model bundle")
+    parser.add_argument("-o", "--output", help="Output model file. Defaults to model.json for linear or model_bundle.zip for mlp")
+    parser.add_argument(
+        "--method",
+        choices=["linear", "mlp"],
+        default="linear",
+        help="Training method. linear is better for small datasets; mlp is the previous neural network.",
+    )
+    parser.add_argument(
+        "--features-source",
+        choices=["auto", "metadata", "wav"],
+        default="auto",
+        help="Use metadata feature columns when available, or recompute from WAV.",
+    )
     parser.add_argument("--epochs", type=int, default=120)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--validation-split", type=float, default=0.2)
     args = parser.parse_args()
+    output = Path(args.output) if args.output else Path("model.json" if args.method == "linear" else "model_bundle.zip")
 
     with prepared_dataset(Path(args.dataset)) as dataset_dir:
-        rows = load_rows(dataset_dir)
+        rows = load_rows(dataset_dir, args.features_source)
         if not rows:
             raise SystemExit("No labeled rows found. Save feedback in the Android app before training.")
-        train_tflite(rows, Path(args.output), args.epochs, args.batch_size, args.validation_split)
-        print(f"trained on {len(rows)} labeled samples -> {args.output}")
+        if len({row["label"] for row in rows}) < 2:
+            raise SystemExit("At least two user_label classes are required for training.")
+        report_cross_validation(rows)
+        if args.method == "linear":
+            train_linear_json(rows, output)
+        else:
+            train_tflite(rows, output, args.method, args.epochs, args.batch_size, args.validation_split)
+        print(f"trained {args.method} model on {len(rows)} labeled samples -> {output}")
         for label in LABELS:
             print(f"{label}: {sum(1 for row in rows if row['label'] == label)} samples")
 
@@ -74,7 +95,7 @@ class prepared_dataset:
             self.tmp.cleanup()
 
 
-def load_rows(dataset_dir: Path) -> list[dict]:
+def load_rows(dataset_dir: Path, features_source: str) -> list[dict]:
     metadata = dataset_dir / "metadata.jsonl"
     rows: list[dict] = []
     for line in metadata.read_text(encoding="utf-8").splitlines():
@@ -84,13 +105,83 @@ def load_rows(dataset_dir: Path) -> list[dict]:
         label = item.get("user_label")
         if label not in LABELS:
             continue
-        wav_path = dataset_dir / item["file"]
-        values = extract_features(wav_path)
+        values = feature_values(item, dataset_dir, features_source)
         rows.append({"label": label, "features": values})
     return rows
 
 
-def train_tflite(rows: list[dict], output: Path, epochs: int, batch_size: int, validation_split: float) -> None:
+def feature_values(item: dict, dataset_dir: Path, features_source: str) -> list[float]:
+    if features_source in ("auto", "metadata") and has_metadata_features(item):
+        return [float(item[name]) for name in FEATURES]
+    if features_source == "metadata":
+        missing = [name for name in FEATURES if name not in item]
+        raise ValueError(f"metadata row is missing feature columns: {', '.join(missing)}")
+    wav_path = dataset_dir / item["file"]
+    return extract_features(wav_path)
+
+
+def has_metadata_features(item: dict) -> bool:
+    return all(name in item and item[name] not in ("", None) for name in FEATURES)
+
+
+def train_linear_json(rows: list[dict], output: Path) -> None:
+    try:
+        import numpy as np
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.preprocessing import StandardScaler
+    except ImportError as exc:
+        raise SystemExit("scikit-learn is required for linear training. Install it with: pip install scikit-learn") from exc
+
+    present_labels = [label for label in LABELS if any(row["label"] == label for row in rows)]
+    x = np.asarray([row["features"] for row in rows], dtype=np.float32)
+    y = np.asarray([present_labels.index(row["label"]) for row in rows], dtype=np.int64)
+
+    scaler = StandardScaler()
+    x_norm = scaler.fit_transform(x)
+    model = LogisticRegression(class_weight="balanced", max_iter=1000, random_state=20260529)
+    model.fit(x_norm, y)
+
+    metadata = {
+        "type": "linear",
+        "version": 1,
+        "sample_rate": 16000,
+        "labels": present_labels,
+        "features": FEATURES,
+        "means": scaler.mean_.astype(float).tolist(),
+        "stds": scaler.scale_.astype(float).tolist(),
+        "coefficients": linear_coefficients(model, len(present_labels)),
+        "intercepts": linear_intercepts(model, len(present_labels)),
+        "notes": "Generated by training/train_model.py using metadata features and balanced logistic regression.",
+    }
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def linear_coefficients(model, label_count: int) -> list[list[float]]:
+    coefficients = model.coef_.astype(float)
+    if label_count == 2 and len(coefficients) == 1:
+        negative = [0.0] * len(coefficients[0])
+        positive = coefficients[0].tolist()
+        return [negative, positive]
+    return coefficients.tolist()
+
+
+def linear_intercepts(model, label_count: int) -> list[float]:
+    intercepts = model.intercept_.astype(float)
+    if label_count == 2 and len(intercepts) == 1:
+        return [0.0, float(intercepts[0])]
+    return intercepts.tolist()
+
+
+def train_tflite(
+    rows: list[dict],
+    output: Path,
+    method: str,
+    epochs: int,
+    batch_size: int,
+    validation_split: float,
+) -> None:
+    os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
     try:
         import numpy as np
         import tensorflow as tf
@@ -99,6 +190,7 @@ def train_tflite(rows: list[dict], output: Path, epochs: int, batch_size: int, v
             "TensorFlow is required for TFLite export. Install it with: pip install tensorflow"
         ) from exc
 
+    tf.keras.utils.set_random_seed(20260529)
     x = np.asarray([row["features"] for row in rows], dtype=np.float32)
     y = np.asarray([LABELS.index(row["label"]) for row in rows], dtype=np.int64)
     means = x.mean(axis=0)
@@ -106,15 +198,7 @@ def train_tflite(rows: list[dict], output: Path, epochs: int, batch_size: int, v
     stds[stds < 1e-6] = 1.0
     x_norm = (x - means) / stds
 
-    model = tf.keras.Sequential(
-        [
-            tf.keras.layers.Input(shape=(len(FEATURES),), name="features"),
-            tf.keras.layers.Dense(128, activation="relu"),
-            tf.keras.layers.Dropout(0.2),
-            tf.keras.layers.Dense(64, activation="relu"),
-            tf.keras.layers.Dense(len(LABELS), activation="softmax", name="ripeness"),
-        ]
-    )
+    model = build_model(tf, method)
     model.compile(
         optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
         loss="sparse_categorical_crossentropy",
@@ -128,7 +212,16 @@ def train_tflite(rows: list[dict], output: Path, epochs: int, batch_size: int, v
         )
     ]
     val_split = validation_split if len(rows) >= 15 else 0.0
-    model.fit(x_norm, y, epochs=epochs, batch_size=batch_size, validation_split=val_split, callbacks=callbacks, verbose=2)
+    model.fit(
+        x_norm,
+        y,
+        epochs=epochs,
+        batch_size=batch_size,
+        validation_split=val_split,
+        callbacks=callbacks,
+        class_weight=class_weights(rows),
+        verbose=2,
+    )
 
     converter = tf.lite.TFLiteConverter.from_keras_model(model)
     converter.optimizations = [tf.lite.Optimize.DEFAULT]
@@ -136,6 +229,7 @@ def train_tflite(rows: list[dict], output: Path, epochs: int, batch_size: int, v
     metadata = {
         "type": "mfcc_mlp_tflite",
         "version": 1,
+        "method": method,
         "sample_rate": 16000,
         "labels": LABELS,
         "features": FEATURES,
@@ -148,6 +242,71 @@ def train_tflite(rows: list[dict], output: Path, epochs: int, batch_size: int, v
     with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("model.tflite", tflite_model)
         zf.writestr("model_metadata.json", json.dumps(metadata, ensure_ascii=False, indent=2))
+
+
+def build_model(tf, method: str):
+    layers = [tf.keras.layers.Input(shape=(len(FEATURES),), name="features")]
+    if method == "mlp":
+        layers.extend(
+            [
+                tf.keras.layers.Dense(128, activation="relu"),
+                tf.keras.layers.Dropout(0.2),
+                tf.keras.layers.Dense(64, activation="relu"),
+            ]
+        )
+    layers.append(tf.keras.layers.Dense(len(LABELS), activation="softmax", name="ripeness"))
+    return tf.keras.Sequential(layers)
+
+
+def class_weights(rows: list[dict]) -> dict[int, float]:
+    counts = {label: sum(1 for row in rows if row["label"] == label) for label in LABELS}
+    present = {label: count for label, count in counts.items() if count > 0}
+    total = sum(present.values())
+    return {
+        LABELS.index(label): total / (len(present) * count)
+        for label, count in present.items()
+    }
+
+
+def report_cross_validation(rows: list[dict]) -> None:
+    try:
+        import numpy as np
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.metrics import accuracy_score, confusion_matrix
+        from sklearn.model_selection import StratifiedKFold
+        from sklearn.pipeline import make_pipeline
+        from sklearn.preprocessing import StandardScaler
+    except ImportError:
+        print("sklearn not installed; skipping cross-validation report")
+        return
+
+    labels = [row["label"] for row in rows]
+    counts = {label: labels.count(label) for label in LABELS if labels.count(label)}
+    min_count = min(counts.values())
+    if len(counts) < 2 or min_count < 2:
+        print("not enough per-class samples for stratified cross-validation")
+        return
+
+    x = np.asarray([row["features"] for row in rows], dtype=np.float32)
+    y = np.asarray([LABELS.index(row["label"]) for row in rows], dtype=np.int64)
+    n_splits = min(5, min_count)
+    splitter = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=20260529)
+    predictions = np.zeros_like(y)
+
+    for train_index, test_index in splitter.split(x, y):
+        model = make_pipeline(
+            StandardScaler(),
+            LogisticRegression(class_weight="balanced", max_iter=1000, random_state=20260529),
+        )
+        model.fit(x[train_index], y[train_index])
+        predictions[test_index] = model.predict(x[test_index])
+
+    print(f"linear cross-validation accuracy ({n_splits}-fold): {accuracy_score(y, predictions):.3f}")
+    matrix = confusion_matrix(y, predictions, labels=list(range(len(LABELS))))
+    print("confusion matrix rows=true cols=pred")
+    print("labels: " + ", ".join(LABELS))
+    for label, values in zip(LABELS, matrix):
+        print(f"{label}: " + " ".join(str(int(value)) for value in values))
 
 
 def extract_features(path: Path) -> list[float]:

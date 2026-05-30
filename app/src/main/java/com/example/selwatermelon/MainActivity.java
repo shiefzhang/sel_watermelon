@@ -63,6 +63,7 @@ public class MainActivity extends Activity {
     private List<RadioButton> mainFeedbackButtons = new ArrayList<>();
     private Spinner feedbackWeightSpinner;
     private Spinner modelSpinner;
+    private Button deleteModelButton;
     private Button recordButton;
     private Button saveFeedbackButton;
     private Button recordTabButton;
@@ -189,6 +190,12 @@ public class MainActivity extends Activity {
                 LinearLayout.LayoutParams.WRAP_CONTENT,
                 1
         ));
+        deleteModelButton = dangerButton("删除");
+        deleteModelButton.setOnClickListener(v -> deleteSelectedModel());
+        modelRow.addView(deleteModelButton, new LinearLayout.LayoutParams(
+                dp(72),
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        ));
         modelPanel.addView(modelRow);
 
         Button importModelButton = secondaryButton("上传训练好的 TFLite 模型包");
@@ -259,9 +266,9 @@ public class MainActivity extends Activity {
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         downloadSelectedButton = compactButton("下载所选");
-        downloadSelectedButton.setOnClickListener(v -> exportSelectedAudio());
+        downloadSelectedButton.setOnClickListener(v -> confirmExportSelectedAudio());
         deleteSelectedButton = compactButton("删除所选");
-        deleteSelectedButton.setOnClickListener(v -> deleteSelectedAudio());
+        deleteSelectedButton.setOnClickListener(v -> confirmDeleteSelectedAudio());
         styleAudioButton(downloadSelectedButton);
         styleAudioButton(deleteSelectedButton);
         actions.addView(downloadSelectedButton, new LinearLayout.LayoutParams(0, dp(42), 1));
@@ -570,7 +577,7 @@ public class MainActivity extends Activity {
             }
         });
         deleteButton.setOnClickListener(v -> {
-            deleteAudio(item);
+            confirmDeleteAudio(item);
             dialog.dismiss();
         });
         dialog.show();
@@ -731,6 +738,135 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void confirmDeleteAudio(RecordingItem item) {
+        new AlertDialog.Builder(this)
+                .setTitle("删除录音")
+                .setMessage("确定删除这条录音？删除后无法从列表恢复。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("删除", (dialog, which) -> deleteItems(singleItem(item), "已删除音频：" + item.audioId))
+                .show();
+    }
+
+    private void confirmDeleteSelectedAudio() {
+        if (selectedAudioIds.isEmpty()) {
+            return;
+        }
+        try {
+            List<RecordingItem> deleteItems = selectedItems();
+            if (deleteItems.isEmpty()) {
+                return;
+            }
+            new AlertDialog.Builder(this)
+                    .setTitle("删除所选")
+                    .setMessage("确定删除选中的 " + deleteItems.size() + " 条录音？删除后无法从列表恢复。")
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("删除", (dialog, which) -> deleteItems(deleteItems, "已删除 " + deleteItems.size() + " 条音频。"))
+                    .show();
+        } catch (Exception e) {
+            refreshStatus("删除所选失败：" + e.getMessage());
+        }
+    }
+
+    private void confirmExportSelectedAudio() {
+        if (selectedAudioIds.isEmpty()) {
+            return;
+        }
+        try {
+            List<RecordingItem> exportItems = selectedItems();
+            if (exportItems.isEmpty()) {
+                return;
+            }
+            Set<String> exportIds = idsOf(exportItems);
+            List<RecordingItem> feedbackItems = withFeedback(exportItems);
+
+            LinearLayout content = new LinearLayout(this);
+            content.setOrientation(LinearLayout.VERTICAL);
+            content.setPadding(dp(4), dp(4), dp(4), 0);
+            TextView message = text("将下载选中的 " + exportItems.size() + " 条录音。未填写反馈的数据不会被自动删除。", 15, 0xFF223128, false);
+            content.addView(message);
+
+            CheckBox deleteFeedbackCheckBox = new CheckBox(this);
+            deleteFeedbackCheckBox.setText("下载后删除选中数据中有反馈的数据（" + feedbackItems.size() + " 条）");
+            deleteFeedbackCheckBox.setChecked(true);
+            content.addView(deleteFeedbackCheckBox);
+
+            new AlertDialog.Builder(this)
+                    .setTitle("下载所选")
+                    .setView(content)
+                    .setNegativeButton("取消", null)
+                    .setPositiveButton("下载", (dialog, which) -> exportSelectedAudio(exportIds, feedbackItems, deleteFeedbackCheckBox.isChecked()))
+                    .show();
+        } catch (Exception e) {
+            refreshStatus("导出所选失败：" + e.getMessage());
+        }
+    }
+
+    private void exportSelectedAudio(Set<String> exportIds, List<RecordingItem> feedbackItems, boolean deleteFeedbackAfterDownload) {
+        try {
+            shareZip(datasetStore.exportSelected(exportIds), "导出所选音频");
+            if (deleteFeedbackAfterDownload && !feedbackItems.isEmpty()) {
+                datasetStore.delete(feedbackItems);
+                selectedAudioIds.removeAll(idsOf(feedbackItems));
+                refreshAudioList();
+                refreshStatus("已下载所选音频，并删除 " + feedbackItems.size() + " 条有反馈的数据。");
+            } else {
+                refreshStatus("已下载所选音频。");
+            }
+        } catch (Exception e) {
+            refreshStatus("导出所选失败：" + e.getMessage());
+        }
+    }
+
+    private List<RecordingItem> selectedItems() throws Exception {
+        List<RecordingItem> items = new ArrayList<>();
+        for (RecordingItem item : datasetStore.listRecordings()) {
+            if (selectedAudioIds.contains(item.audioId)) {
+                items.add(item);
+            }
+        }
+        return items;
+    }
+
+    private List<RecordingItem> withFeedback(List<RecordingItem> items) {
+        List<RecordingItem> out = new ArrayList<>();
+        for (RecordingItem item : items) {
+            if (hasFeedback(item)) {
+                out.add(item);
+            }
+        }
+        return out;
+    }
+
+    private Set<String> idsOf(List<RecordingItem> items) {
+        Set<String> ids = new HashSet<>();
+        for (RecordingItem item : items) {
+            ids.add(item.audioId);
+        }
+        return ids;
+    }
+
+    private List<RecordingItem> singleItem(RecordingItem item) {
+        List<RecordingItem> items = new ArrayList<>();
+        items.add(item);
+        return items;
+    }
+
+    private boolean hasFeedback(RecordingItem item) {
+        return item.feedback != null && !item.feedback.trim().isEmpty();
+    }
+
+    private void deleteItems(List<RecordingItem> items, String successMessage) {
+        try {
+            stopPlayback();
+            datasetStore.delete(items);
+            selectedAudioIds.removeAll(idsOf(items));
+            refreshAudioList();
+            refreshStatus(successMessage);
+        } catch (Exception e) {
+            refreshStatus("删除失败：" + e.getMessage());
+        }
+    }
+
     private void shareZip(Uri uri, String title) {
         Intent intent = new Intent(Intent.ACTION_SEND);
         intent.setType("application/zip");
@@ -768,9 +904,11 @@ public class MainActivity extends Activity {
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         modelSpinner.setAdapter(adapter);
         selectModelEntry(model.activeModelId());
+        updateDeleteModelButton();
         modelSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                updateDeleteModelButton();
                 if (updatingModelSpinner || position < 0 || position >= modelEntries.size()) {
                     return;
                 }
@@ -793,6 +931,54 @@ public class MainActivity extends Activity {
             }
         });
         updatingModelSpinner = false;
+    }
+
+    private void deleteSelectedModel() {
+        if (modelSpinner == null || modelEntries.isEmpty()) {
+            return;
+        }
+        int position = modelSpinner.getSelectedItemPosition();
+        if (position < 0 || position >= modelEntries.size()) {
+            return;
+        }
+        RipenessModel.ModelEntry entry = modelEntries.get(position);
+        if (!entry.deletable) {
+            Toast.makeText(this, "该模型不能删除", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("删除模型包")
+                .setMessage("确定删除“" + entry.name + "”？已用该模型生成的历史记录不会删除。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("删除", (dialog, which) -> {
+                    try {
+                        RipenessModel.deleteModel(this, entry.id);
+                        refreshModelSpinner();
+                        if (!modelEntries.isEmpty()) {
+                            RipenessModel.ModelEntry next = modelEntries.get(0);
+                            model.loadModel(this, next.id);
+                            model.saveActiveModel(this);
+                            selectModelEntry(next.id);
+                            refreshStatus("已删除模型，当前模型：" + model.source());
+                        }
+                    } catch (Exception e) {
+                        refreshStatus("删除模型失败：" + e.getMessage());
+                    }
+                })
+                .show();
+    }
+
+    private void updateDeleteModelButton() {
+        if (deleteModelButton == null || modelSpinner == null || modelEntries.isEmpty()) {
+            return;
+        }
+        int position = modelSpinner.getSelectedItemPosition();
+        boolean canDelete = position >= 0 && position < modelEntries.size() && modelEntries.get(position).deletable;
+        deleteModelButton.setEnabled(canDelete);
+        deleteModelButton.setTextColor(canDelete ? 0xFFFFFFFF : 0xFF8A8A8A);
+        deleteModelButton.setBackground(canDelete
+                ? boxBackground(0xFFB33A3A, 0xFFB33A3A)
+                : boxBackground(0xFFE4E4E4, 0xFFC9C9C9));
     }
 
     private void selectModelEntry(String id) {

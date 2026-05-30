@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>听瓜版本更新历史</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --green: #1b7f45;
+      --blue: #2367b2;
+      --red: #b33a3a;
+      --ink: #16251d;
+      --muted: #65756a;
+      --line: #dfe9e2;
+      --paper: #ffffff;
+      --wash: #f6faf7;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      color: var(--ink);
+      line-height: 1.7;
+      background: var(--wash);
+    }
+    main { max-width: 980px; margin: 0 auto; padding: 42px 22px 68px; }
+    header { padding-bottom: 18px; border-bottom: 1px solid var(--line); }
+    h1 { margin: 0 0 8px; font-size: 40px; letter-spacing: 0; line-height: 1.12; }
+    h2 { margin: 0; font-size: 26px; }
+    h3 { margin: 20px 0 8px; font-size: 18px; color: var(--green); }
+    p { margin: 0 0 12px; }
+    .lead { color: var(--muted); font-size: 17px; }
+    .release {
+      margin-top: 22px;
+      padding: 22px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--paper);
+    }
+    .release.current { border-color: #efc7c7; box-shadow: 0 8px 24px rgba(179, 58, 58, 0.08); }
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 10px 0 16px;
+    }
+    .badge {
+      display: inline-flex;
+      padding: 4px 10px;
+      border-radius: 8px;
+      border: 1px solid #b8d3f4;
+      background: #eaf3ff;
+      color: #1c4f86;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .badge.current { border-color: #f0c3c3; background: #fff0f0; color: var(--red); }
+    ul { margin: 0 0 12px; padding-left: 20px; }
+    li { margin: 6px 0; }
+    a { color: var(--blue); }
+    footer { margin-top: 28px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>听瓜版本更新历史</h1>
+    <p class="lead">记录 Android 应用、模型判断逻辑、训练脚本和数据管理流程的主要变化。</p>
+  </header>
+
+  <section class="release current">
+    <h2>1.1.0</h2>
+    <div class="meta">
+      <span class="badge current">当前版本</span>
+      <span class="badge">2026-05-30</span>
+    </div>
+    <h3>成熟度判断</h3>
+    <ul>
+      <li>新增“甘甜”作为独立判断阶段，位于“尚可”和“过熟”之间，并更偏向“过熟”，用于表达最佳甜度区间。</li>
+      <li>内置 JSON 质心模型增加 <code>bursting</code> 标签，完整标签为 <code>unripe / ripe / bursting / overripe</code>。</li>
+      <li>外部模型没有 <code>bursting</code> 标签时，应用会根据声学特征在 <code>ripe / acceptable / overripe</code> 结果附近适配出“甘甜”。</li>
+      <li>“过熟”判断收窄为更明显的偏软、空心或异常区间，避免把最佳甜度区间整体归为过熟。</li>
+    </ul>
+    <h3>列表与数据管理</h3>
+    <ul>
+      <li>单条删除和批量删除增加确认弹框，降低误删风险。</li>
+      <li>批量下载增加确认弹框。</li>
+      <li>下载确认弹框中新增“下载后删除选中数据中有反馈的数据”复选框，默认勾选。</li>
+      <li>勾选后，下载完成会删除选中数据中已经填写反馈的记录，未填写反馈的数据会保留。</li>
+    </ul>
+    <h3>模型管理与训练</h3>
+    <ul>
+      <li>支持上传、切换和删除训练好的模型包。</li>
+      <li>训练脚本支持默认导出线性 JSON 模型，适合小样本快速迭代。</li>
+      <li>训练脚本保留 MLP TFLite 导出能力，可通过 <code>--method mlp</code> 使用。</li>
+      <li>训练脚本支持优先使用导出元数据中的特征列，并输出交叉验证报告。</li>
+    </ul>
+  </section>
+
+  <section class="release">
+    <h2>1.0.0</h2>
+    <div class="meta">
+      <span class="badge">初始版本</span>
+      <span class="badge">2026-05-23</span>
+    </div>
+    <ul>
+      <li>初始 Android 应用。</li>
+      <li>支持拍打录音、实时波形、声学特征提取和本地成熟度判断。</li>
+      <li>支持保存实际口感、重量和音频元数据。</li>
+      <li>支持导出 WAV 样本和 <code>metadata.jsonl</code>。</li>
+      <li>提供基础训练脚本，用于生成可上传的模型包。</li>
+    </ul>
+  </section>
+
+  <footer>
+    返回 <a href="README.html">项目说明</a>。
+  </footer>
+</main>
+</body>
+</html>
